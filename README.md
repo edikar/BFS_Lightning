@@ -12,7 +12,7 @@ libglfw
  `gcc -std=c99  -o lightning lightning.c -lGLEW -lGL -lglfw;`
 
 ## 3. Execution: 
- ./lightning`  
+ `./lightning`  
 
 ## 4. Screenshots
 soon...
