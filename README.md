@@ -6,7 +6,7 @@ https://www.youtube.com/watch?v=akZ8JJ4gGLs
 ## 1. Prerequisites
 libGL  
 libGLEW   
-glfw
+libglfw
 
 ## 2. Compilation:
  `gcc -std=c99  -o lightning lightning.c -lGLEW -lGL -lglfw;`
