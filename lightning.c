@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+#include <string.h>
 
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -28,14 +29,14 @@ void draw();
 #define FALSE (0)
 
 // settings
-#define SCR_WIDTH (1000)
-#define SCR_HEIGHT (1000)
-#define GRID_SIZE (81) /* 300 */
-#define GRID_DENSITY (0.4f)
+static int gSCR_WIDTH = 1000;
+static int gSCR_HEIGHT = 1000;
+static float gGRID_DENSITY = 0.4f;
+static float gDIM_FACTOR = 0.95f;
 
-// timing
-float deltaTime = 0.0f;	// time between current frame and last frame
-float lastFrame = 0.0f;
+#ifndef gGRID_SIZE
+#define gGRID_SIZE (80) /*(81) /* 300 */
+#endif
 
 typedef struct {
     float x,y,z;
@@ -47,27 +48,32 @@ int gridProgram, graphProgram;
 unsigned int gridVBO, gridColorsVBO, gridVAO, gridEBO;
 unsigned int graphVBO, graphColorsVBO, graphVAO, graphEBO;
 
-vec3 gridVertices[GRID_SIZE][GRID_SIZE]; // +1 to include the borders
-vec3 gridColors[GRID_SIZE][GRID_SIZE] = { 0 };
-int gridElements[GRID_SIZE * GRID_SIZE * 2 * 2];
+vec3 gridVertices[gGRID_SIZE][gGRID_SIZE]; // +1 to include the borders
+vec3 gridColors[gGRID_SIZE][gGRID_SIZE] = { 0 };
+int gridElements[gGRID_SIZE * gGRID_SIZE * 2 * 2];
 int numGridElements = 0;
 
 
-vec3 graphVertices[GRID_SIZE][GRID_SIZE][4] = { 0 };
-vec3 graphColors[GRID_SIZE][GRID_SIZE][4] = { 0 };
+vec3 graphVertices[gGRID_SIZE][gGRID_SIZE][4] = { 0 };
+struct {
+    int x,y;
+}graphVisited[gGRID_SIZE * gGRID_SIZE] = { 0 };
+int visitedNextInQ = 0, visitedNum = 0;
+vec3 graphColors[gGRID_SIZE][gGRID_SIZE][4] = { 0 };
 struct {
     int n,s,e,w; //walls
     int visited;
     int fatherX, fatherY; //first father
-}graphProperties[GRID_SIZE][GRID_SIZE];
+}graphProperties[gGRID_SIZE][gGRID_SIZE];
 
 
-int graphElements[GRID_SIZE * GRID_SIZE * 6] = { 0 };
+int graphElements[gGRID_SIZE * gGRID_SIZE * 6] = { 0 };
 int numGraphElements = 0;
 
 
 int step = 0;
 int finishedFlag = 0;
+int loopFlag = 0;
 float brightnessFactor = 1.0;
 
 GLuint LoadShader(GLenum type, const char *shaderSrc){   
@@ -174,18 +180,22 @@ void gridInit()
     numGraphElements = 0;
     numGridElements = 0;
 
-    for(int y = 0; y < GRID_SIZE; y++){
-        for(int x = 0; x < GRID_SIZE; x++)
+    memset(graphVisited, -1, sizeof(graphVisited));
+    visitedNum = 0;
+    visitedNextInQ = 0;
+
+    for(int y = 0; y < gGRID_SIZE; y++){
+        for(int x = 0; x < gGRID_SIZE; x++)
         {
-            gridVertices[y][x].x = 2 * (GLfloat)x / (GRID_SIZE - 1) - 1.0f;
-            gridVertices[y][x].y = 2 * (GLfloat)y / (GRID_SIZE - 1) - 1.0f;
+            gridVertices[y][x].x = 2 * (GLfloat)x / (gGRID_SIZE - 1) - 1.0f;
+            gridVertices[y][x].y = 2 * (GLfloat)y / (gGRID_SIZE - 1) - 1.0f;
             gridVertices[y][x].z = 0;
 
         }
     }
 
-    for(int y = 0; y < GRID_SIZE; y++){
-        for(int x = 0; x < GRID_SIZE; x++)
+    for(int y = 0; y < gGRID_SIZE - 1; y++){
+        for(int x = 0; x < gGRID_SIZE - 1; x++)
         {
 
             gridColors[y][x].x = GRID_R;
@@ -222,18 +232,17 @@ void gridInit()
             graphVertices[y][x][3].y = gridVertices[y + 1][x].y;
             graphVertices[y][x][3].z = gridVertices[y + 1][x].z;
 
-
         }
     }
 
-    for(int y = 0; y < GRID_SIZE; y++)
+    for(int y = 0; y < gGRID_SIZE; y++)
     {
-        for(int x = 0; x < GRID_SIZE; x++)
+        for(int x = 0; x < gGRID_SIZE; x++)
         {
-            if(( (y == 0) || (y == GRID_SIZE - 1) || (((float)rand() / RAND_MAX) < GRID_DENSITY)) && (x < GRID_SIZE - 1))
+            if(( (y == 0) || (y == gGRID_SIZE - 1) || (((float)rand() / RAND_MAX) < gGRID_DENSITY)) && (x < gGRID_SIZE - 1))
             {
-                gridElements[numGridElements + 0] = y * GRID_SIZE + x;
-                gridElements[numGridElements + 1] = y * GRID_SIZE + x + 1;
+                gridElements[numGridElements + 0] = y * gGRID_SIZE + x;
+                gridElements[numGridElements + 1] = y * gGRID_SIZE + x + 1;
                 numGridElements += 2;
 
                 graphProperties[y][x].s = 1;
@@ -242,10 +251,10 @@ void gridInit()
                 }
             }
 
-            if(( (x == 0) || (x == GRID_SIZE - 1) || (((float)rand() / RAND_MAX) < GRID_DENSITY)) && (y < GRID_SIZE - 1))
+            if(( (x == 0) || (x == gGRID_SIZE - 1) || (((float)rand() / RAND_MAX) < gGRID_DENSITY)) && (y < gGRID_SIZE - 1))
             {
-                gridElements[numGridElements + 0] = y * GRID_SIZE + x;
-                gridElements[numGridElements + 1] = (y + 1) * GRID_SIZE + x;
+                gridElements[numGridElements + 0] = y * gGRID_SIZE + x;
+                gridElements[numGridElements + 1] = (y + 1) * gGRID_SIZE + x;
                 numGridElements += 2;
 
                 graphProperties[y][x].e = 1;
@@ -256,29 +265,30 @@ void gridInit()
         }
     }
 
-    graphProperties[GRID_SIZE - 2][GRID_SIZE / 2].visited = 1;
-    for(int i = 0; i < 4; i++){
-        graphColors[GRID_SIZE - 2][GRID_SIZE / 2][i].x = GRAPH_R;
-        graphColors[GRID_SIZE - 2][GRID_SIZE / 2][i].y = GRAPH_G;
-        graphColors[GRID_SIZE - 2][GRID_SIZE / 2][i].z = GRAPH_B;
-    }
-    for(int y = 0; y < GRID_SIZE; y++)
-    {
-        for(int x = 0; x < GRID_SIZE; x++)
-        {
-            if(graphProperties[y][x].visited > 0)
-            {
-                graphElements[numGraphElements + 0] = 4*(y * GRID_SIZE + x);
-                graphElements[numGraphElements + 1] = 4*(y * GRID_SIZE + x) + 1;
-                graphElements[numGraphElements + 2] = 4*(y * GRID_SIZE + x) + 2;
-                graphElements[numGraphElements + 3] = 4*(y * GRID_SIZE + x);
-                graphElements[numGraphElements + 4] = 4*(y * GRID_SIZE + x) + 2;
-                graphElements[numGraphElements + 5] = 4*(y * GRID_SIZE + x) + 3;
+    int startY = gGRID_SIZE - 2;
+    int startX = gGRID_SIZE / 2;
+    graphProperties[startY][startX].visited = 1;
+    graphProperties[startY][startX].fatherX = gGRID_SIZE;
+    graphProperties[startY][startX].fatherY = gGRID_SIZE;
+    graphVisited[visitedNum].x = startX;
+    graphVisited[visitedNum].y = startY;
+    visitedNum++;
 
-                numGraphElements += 6;
-            }
-        }
+    for(int i = 0; i < 4; i++){
+        graphColors[startY][startX][i].x = GRAPH_R;
+        graphColors[startY][startX][i].y = GRAPH_G;
+        graphColors[startY][startX][i].z = GRAPH_B;
     }
+
+    graphElements[numGraphElements + 0] = 4*(startY * gGRID_SIZE + startX);
+    graphElements[numGraphElements + 1] = 4*(startY * gGRID_SIZE + startX) + 1;
+    graphElements[numGraphElements + 2] = 4*(startY * gGRID_SIZE + startX) + 2;
+    graphElements[numGraphElements + 3] = 4*(startY * gGRID_SIZE + startX);
+    graphElements[numGraphElements + 4] = 4*(startY * gGRID_SIZE + startX) + 2;
+    graphElements[numGraphElements + 5] = 4*(startY * gGRID_SIZE + startX) + 3;
+
+    numGraphElements += 6;
+
 
     // bind the Vertex Array Object first, then bind and set vertex buffer(s), and then configure vertex attributes(s).
     glBindVertexArray(gridVAO);
@@ -318,196 +328,207 @@ void gridInit()
 
 void makeStep()
 {
-    int emptyStepFlag = 1;
+    int emptyStepFlag = 1; //If no change in current step - then the maze is unsolvable
 
-    static int blinking[40] = { 1,0,1,1,0,0,1,0,1,1,0,1,1,1,1,0,1,1,1,1,1,0,0,0,0,0,1,0,1,1,0,1,1,1,1,1,1,1,1,1};
-    //static int blinking[20] = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1 };
-    //static int blinking[20] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
-
-    static int i = 0;
-    static saveNumElements = 0;
+    static int blinking = 0;
     if(finishedFlag == 1){
-        i++;
-        //i = (i >= 20) ? 0 : i + 1;
-        if(((float)rand() / RAND_MAX) < 0.7f)
+        blinking++;
+        if(((float)rand() / RAND_MAX) < 0.85f)
         {
-            brightnessFactor *= 0.8;
+            brightnessFactor *= 0.9;
             glUniform1f(glGetUniformLocation(gridProgram, "brightnessFactor"), brightnessFactor);
-            //numGraphElements = 0;
         }else{
             brightnessFactor = 1.0;
             glUniform1f(glGetUniformLocation(gridProgram, "brightnessFactor"), brightnessFactor);
-            //numGraphElements = saveNumElements;
         }
 
-        if(i > 100){
-            i = 0;
-            finishedFlag = 0;
-            step = 0;
-            brightnessFactor = 1.0;
-            gridInit();
-            numGraphElements = 0;
+        if(blinking > 100){
+            if(loopFlag)
+            {
+                blinking = 0;
+                finishedFlag = 0;
+                step = 0;
+                brightnessFactor = 1.0;
+                gridInit();
+                numGraphElements = 0;
+            }else{
+                exit(0);
+            }
         }
         return;
     }
 
     //dim previous steps
-    for(int y = 0; y < GRID_SIZE; y++)
+    for(int v = 0; v < visitedNum; v++)
     {
-        for(int x = 0; x < GRID_SIZE; x++)
+        int x = graphVisited[v].x;
+        int y = graphVisited[v].y;
+
+        for(int i = 0; i < 4; i++)
         {
-            if(graphProperties[y][x].visited > 0)
-            {
-                for(int i = 0; i < 4; i++)
-                {
-                    graphColors[y][x][i].x *= 0.9;
-                    graphColors[y][x][i].y *= 0.9;
-                    graphColors[y][x][i].z *= 0.9;
-                }
-            }
+            graphColors[y][x][i].x *= gDIM_FACTOR;
+            graphColors[y][x][i].y *= gDIM_FACTOR;
+            graphColors[y][x][i].z *= gDIM_FACTOR;
         }
     }
 
-    for(int y = 0; y < GRID_SIZE; y++)
+    static int s = 0;
+    //printf("step = %d, visitedNextInQ = %d, visitedNum = %d\n", s++, visitedNextInQ, visitedNum);
+    int lastVisitedSize = visitedNum; //we are going to updated visitedNum inside the loop so save it in temporary variable
+    for(int v = visitedNextInQ; v < lastVisitedSize; v++)
     {
-        for(int x = 0; x < GRID_SIZE; x++)
+        int x = graphVisited[v].x;
+        int y = graphVisited[v].y;
+        //printf("%d: x,y = %d,%d\n",v, x,y);
+
+        if(y == 0) // if visited the bottom layer - make the lightning strike
         {
-            if(graphProperties[y][x].visited == step)
+            int tx = x, ty = y;
+
+            finishedFlag = 1;
+            //printf("finished;\n");
+            numGraphElements = 0;
+
+            while(ty < gGRID_SIZE - 1)
             {
-                if(y == 0) // if visited the bottom layer
-                {
-                    int tx = x, ty = y;
+                graphElements[numGraphElements + 0] = 4*((ty)   * gGRID_SIZE + tx);
+                graphElements[numGraphElements + 1] = 4*((ty)   * gGRID_SIZE + tx) + 1;
+                graphElements[numGraphElements + 2] = 4*((ty)   * gGRID_SIZE + tx) + 2;
+                graphElements[numGraphElements + 3] = 4*((ty)   * gGRID_SIZE + tx);
+                graphElements[numGraphElements + 4] = 4*((ty)   * gGRID_SIZE + tx) + 2;
+                graphElements[numGraphElements + 5] = 4*((ty)   * gGRID_SIZE + tx) + 3;
+                numGraphElements += 6;
 
-                    finishedFlag = 1;
-                    printf("finished;\n");
-                    numGraphElements = 0;
-
-
-                    while(ty < GRID_SIZE - 2)
-                    {
-                        graphElements[numGraphElements + 0] = 4*((ty)   * GRID_SIZE + tx);
-                        graphElements[numGraphElements + 1] = 4*((ty)   * GRID_SIZE + tx) + 1;
-                        graphElements[numGraphElements + 2] = 4*((ty)   * GRID_SIZE + tx) + 2;
-                        graphElements[numGraphElements + 3] = 4*((ty)   * GRID_SIZE + tx);
-                        graphElements[numGraphElements + 4] = 4*((ty)   * GRID_SIZE + tx) + 2;
-                        graphElements[numGraphElements + 5] = 4*((ty)   * GRID_SIZE + tx) + 3;
-
-                        numGraphElements += 6;
-
-                        for(int i = 0; i < 4; i++){
-                            graphColors[ty][tx][i].x = 1.0f;
-                            graphColors[ty][tx][i].y = 1.0f;
-                            graphColors[ty][tx][i].z = 1.0f;
-                        }
-
-                        int ttx = graphProperties[ty][tx].fatherX;
-                        ty = graphProperties[ty][tx].fatherY;
-                        tx = ttx;
-                    }
-                    saveNumElements = numGraphElements;
-                    return;
+                for(int i = 0; i < 4; i++){
+                    graphColors[ty][tx][i].x = 1.0f;
+                    graphColors[ty][tx][i].y = 1.0f;
+                    graphColors[ty][tx][i].z = 1.0f;
                 }
 
-                //printf("graph[%d][%d].visited == %d\n",y, x,step);
-                if(graphProperties[y][x].n == 0 && y < GRID_SIZE && graphProperties[y+1][x].visited == 0)
-                {
-                    emptyStepFlag = 0;
-                    //printf("graph[%d][%d].n == %d && graph[%d][%d].visited == %d\n", y, x, graphProperties[y][x].n, y+1,x,graphProperties[y+1][x].visited);
-                    graphElements[numGraphElements + 0] = 4*((y+1) * GRID_SIZE + x);
-                    graphElements[numGraphElements + 1] = 4*((y+1) * GRID_SIZE + x) + 1;
-                    graphElements[numGraphElements + 2] = 4*((y+1) * GRID_SIZE + x) + 2;
-                    graphElements[numGraphElements + 3] = 4*((y+1) * GRID_SIZE + x);
-                    graphElements[numGraphElements + 4] = 4*((y+1) * GRID_SIZE + x) + 2;
-                    graphElements[numGraphElements + 5] = 4*((y+1) * GRID_SIZE + x) + 3;
-
-                    numGraphElements += 6;
-
-                    graphProperties[y+1][x].visited = step + 1;
-
-                    for(int i = 0; i < 4; i++){
-                        graphColors[y+1][x][i].x = GRAPH_R;
-                        graphColors[y+1][x][i].y = GRAPH_G;
-                        graphColors[y+1][x][i].z = GRAPH_B;
-                    }
-
-                    graphProperties[y+1][x].fatherX = x;
-                    graphProperties[y+1][x].fatherY = y;
-                }
-                if(graphProperties[y][x].s == 0 && y > 0 && graphProperties[y-1][x].visited == 0)
-                {
-                    emptyStepFlag = 0;
-                    //printf("graph[%d][%d].s == %d && graph[%d][%d].visited == %d\n", y, x, graphProperties[y][x].s, y-1,x,graphProperties[y-1][x].visited);
-                    graphElements[numGraphElements + 0] = 4*((y-1) * GRID_SIZE + x);
-                    graphElements[numGraphElements + 1] = 4*((y-1) * GRID_SIZE + x) + 1;
-                    graphElements[numGraphElements + 2] = 4*((y-1) * GRID_SIZE + x) + 2;
-                    graphElements[numGraphElements + 3] = 4*((y-1) * GRID_SIZE + x);
-                    graphElements[numGraphElements + 4] = 4*((y-1) * GRID_SIZE + x) + 2;
-                    graphElements[numGraphElements + 5] = 4*((y-1) * GRID_SIZE + x) + 3;
-
-                    numGraphElements += 6;
-
-                    graphProperties[y-1][x].visited = step + 1;
-
-                    for(int i = 0; i < 4; i++){
-                        graphColors[y-1][x][i].x = GRAPH_R;
-                        graphColors[y-1][x][i].y = GRAPH_G;
-                        graphColors[y-1][x][i].z = GRAPH_B;
-                    }
-
-                    graphProperties[y-1][x].fatherX = x;
-                    graphProperties[y-1][x].fatherY = y;
-                }
-                if(graphProperties[y][x].e == 0 && x > 0 && graphProperties[y][x-1].visited == 0)
-                {
-                    emptyStepFlag = 0;
-                    //printf("graph[%d][%d].e == %d && graph[%d][%d].visited == %d\n", y, x, graphProperties[y][x].e, y,x-1,graphProperties[y][x-1].visited);
-                    graphElements[numGraphElements + 0] = 4*((y) * GRID_SIZE + x-1);
-                    graphElements[numGraphElements + 1] = 4*((y) * GRID_SIZE + x-1) + 1;
-                    graphElements[numGraphElements + 2] = 4*((y) * GRID_SIZE + x-1) + 2;
-                    graphElements[numGraphElements + 3] = 4*((y) * GRID_SIZE + x-1);
-                    graphElements[numGraphElements + 4] = 4*((y) * GRID_SIZE + x-1) + 2;
-                    graphElements[numGraphElements + 5] = 4*((y) * GRID_SIZE + x-1) + 3;
-
-                    numGraphElements += 6;
-
-                    graphProperties[y][x-1].visited = step + 1;
-
-                    for(int i = 0; i < 4; i++){
-                        graphColors[y][x-1][i].x = GRAPH_R;
-                        graphColors[y][x-1][i].y = GRAPH_G;
-                        graphColors[y][x-1][i].z = GRAPH_B;
-                    }
-                    
-                    graphProperties[y][x-1].fatherX = x;
-                    graphProperties[y][x-1].fatherY = y;
-                }
-                if(graphProperties[y][x].w == 0 && x < GRID_SIZE && graphProperties[y][x+1].visited == 0)
-                {
-                    emptyStepFlag = 0;
-                    //printf("graph[%d][%d].w == %d && graph[%d][%d].visited == %d\n", y, x, graphProperties[y][x].e, y,x+1,graphProperties[y][x+1].visited);
-                    graphElements[numGraphElements + 0] = 4*((y) * GRID_SIZE + x+1);
-                    graphElements[numGraphElements + 1] = 4*((y) * GRID_SIZE + x+1) + 1;
-                    graphElements[numGraphElements + 2] = 4*((y) * GRID_SIZE + x+1) + 2;
-                    graphElements[numGraphElements + 3] = 4*((y) * GRID_SIZE + x+1);
-                    graphElements[numGraphElements + 4] = 4*((y) * GRID_SIZE + x+1) + 2;
-                    graphElements[numGraphElements + 5] = 4*((y) * GRID_SIZE + x+1) + 3;
-
-                    numGraphElements += 6;
-
-                    graphProperties[y][x+1].visited = step + 1;
-
-                    for(int i = 0; i < 4; i++){
-                        graphColors[y][x+1][i].x = GRAPH_R;
-                        graphColors[y][x+1][i].y = GRAPH_G;
-                        graphColors[y][x+1][i].z = GRAPH_B;
-                    }
-                    graphProperties[y][x+1].fatherX = x;
-                    graphProperties[y][x+1].fatherY = y;
-                }
-
+                int ttx = graphProperties[ty][tx].fatherX;
+                ty = graphProperties[ty][tx].fatherY;
+                tx = ttx;
             }
+            return;
+        }
+
+        //printf("graph[%d][%d].visited == %d\n",y, x,step);
+        if(graphProperties[y][x].n == 0 && y < gGRID_SIZE && graphProperties[y+1][x].visited == 0)
+        {
+            emptyStepFlag = 0;
+            //printf("graph[%d][%d].n == %d && graph[%d][%d].visited == %d\n", y, x, graphProperties[y][x].n, y+1,x,graphProperties[y+1][x].visited);
+            graphElements[numGraphElements + 0] = 4*((y+1) * gGRID_SIZE + x);
+            graphElements[numGraphElements + 1] = 4*((y+1) * gGRID_SIZE + x) + 1;
+            graphElements[numGraphElements + 2] = 4*((y+1) * gGRID_SIZE + x) + 2;
+            graphElements[numGraphElements + 3] = 4*((y+1) * gGRID_SIZE + x);
+            graphElements[numGraphElements + 4] = 4*((y+1) * gGRID_SIZE + x) + 2;
+            graphElements[numGraphElements + 5] = 4*((y+1) * gGRID_SIZE + x) + 3;
+
+            numGraphElements += 6;
+
+            graphProperties[y+1][x].visited = step + 1;
+
+            for(int i = 0; i < 4; i++){
+                graphColors[y+1][x][i].x = GRAPH_R;
+                graphColors[y+1][x][i].y = GRAPH_G;
+                graphColors[y+1][x][i].z = GRAPH_B;
+            }
+
+            graphProperties[y+1][x].fatherX = x;
+            graphProperties[y+1][x].fatherY = y;
+
+            graphVisited[visitedNum].x = x;
+            graphVisited[visitedNum].y = y+1;
+            visitedNum++;
+
+        }
+        if(graphProperties[y][x].s == 0 && y > 0 && graphProperties[y-1][x].visited == 0)
+        {
+            emptyStepFlag = 0;
+            //printf("graph[%d][%d].s == %d && graph[%d][%d].visited == %d\n", y, x, graphProperties[y][x].s, y-1,x,graphProperties[y-1][x].visited);
+            graphElements[numGraphElements + 0] = 4*((y-1) * gGRID_SIZE + x);
+            graphElements[numGraphElements + 1] = 4*((y-1) * gGRID_SIZE + x) + 1;
+            graphElements[numGraphElements + 2] = 4*((y-1) * gGRID_SIZE + x) + 2;
+            graphElements[numGraphElements + 3] = 4*((y-1) * gGRID_SIZE + x);
+            graphElements[numGraphElements + 4] = 4*((y-1) * gGRID_SIZE + x) + 2;
+            graphElements[numGraphElements + 5] = 4*((y-1) * gGRID_SIZE + x) + 3;
+
+            numGraphElements += 6;
+
+            graphProperties[y-1][x].visited = step + 1;
+
+            for(int i = 0; i < 4; i++){
+                graphColors[y-1][x][i].x = GRAPH_R;
+                graphColors[y-1][x][i].y = GRAPH_G;
+                graphColors[y-1][x][i].z = GRAPH_B;
+            }
+
+            graphProperties[y-1][x].fatherX = x;
+            graphProperties[y-1][x].fatherY = y;
+
+            graphVisited[visitedNum].x = x;
+            graphVisited[visitedNum].y = y-1;
+            visitedNum++;
+        }
+        if(graphProperties[y][x].e == 0 && x > 0 && graphProperties[y][x-1].visited == 0)
+        {
+            emptyStepFlag = 0;
+            //printf("graph[%d][%d].e == %d && graph[%d][%d].visited == %d\n", y, x, graphProperties[y][x].e, y,x-1,graphProperties[y][x-1].visited);
+            graphElements[numGraphElements + 0] = 4*((y) * gGRID_SIZE + x-1);
+            graphElements[numGraphElements + 1] = 4*((y) * gGRID_SIZE + x-1) + 1;
+            graphElements[numGraphElements + 2] = 4*((y) * gGRID_SIZE + x-1) + 2;
+            graphElements[numGraphElements + 3] = 4*((y) * gGRID_SIZE + x-1);
+            graphElements[numGraphElements + 4] = 4*((y) * gGRID_SIZE + x-1) + 2;
+            graphElements[numGraphElements + 5] = 4*((y) * gGRID_SIZE + x-1) + 3;
+
+            numGraphElements += 6;
+
+            graphProperties[y][x-1].visited = step + 1;
+
+            for(int i = 0; i < 4; i++){
+                graphColors[y][x-1][i].x = GRAPH_R;
+                graphColors[y][x-1][i].y = GRAPH_G;
+                graphColors[y][x-1][i].z = GRAPH_B;
+            }
+            
+            graphProperties[y][x-1].fatherX = x;
+            graphProperties[y][x-1].fatherY = y;
+
+            graphVisited[visitedNum].x = x-1;
+            graphVisited[visitedNum].y = y;
+            visitedNum++;
+        }
+        if(graphProperties[y][x].w == 0 && x < gGRID_SIZE && graphProperties[y][x+1].visited == 0)
+        {
+            emptyStepFlag = 0;
+            //printf("graph[%d][%d].w == %d && graph[%d][%d].visited == %d\n", y, x, graphProperties[y][x].e, y,x+1,graphProperties[y][x+1].visited);
+            graphElements[numGraphElements + 0] = 4*((y) * gGRID_SIZE + x+1);
+            graphElements[numGraphElements + 1] = 4*((y) * gGRID_SIZE + x+1) + 1;
+            graphElements[numGraphElements + 2] = 4*((y) * gGRID_SIZE + x+1) + 2;
+            graphElements[numGraphElements + 3] = 4*((y) * gGRID_SIZE + x+1);
+            graphElements[numGraphElements + 4] = 4*((y) * gGRID_SIZE + x+1) + 2;
+            graphElements[numGraphElements + 5] = 4*((y) * gGRID_SIZE + x+1) + 3;
+
+            numGraphElements += 6;
+
+            graphProperties[y][x+1].visited = step + 1;
+
+            for(int i = 0; i < 4; i++){
+                graphColors[y][x+1][i].x = GRAPH_R;
+                graphColors[y][x+1][i].y = GRAPH_G;
+                graphColors[y][x+1][i].z = GRAPH_B;
+            }
+            graphProperties[y][x+1].fatherX = x;
+            graphProperties[y][x+1].fatherY = y;
+
+            graphVisited[visitedNum].x = x+1;
+            graphVisited[visitedNum].y = y;
+            visitedNum++;
         }
     }
+
+    visitedNextInQ = lastVisitedSize; //update next in visited Q
+
 
     if(emptyStepFlag == 1){
         finishedFlag = 0;
@@ -516,9 +537,27 @@ void makeStep()
     }
 }
 
+
+void showFrameRate(){
+
+    static double previousTime;
+    static int frameCount;
+    double currentTime = glfwGetTime();
+    double deltaMs = (currentTime - previousTime) * 1000;
+    frameCount++;
+    if ( currentTime - previousTime >= 1.0 )
+    {
+        printf("FPS: %d\n", frameCount);
+        frameCount = 0;
+        previousTime = currentTime;
+    }
+}
+
 void draw(){  
+    showFrameRate();
+
     // Set the viewport   
-    glViewport(0, 0, SCR_HEIGHT, SCR_WIDTH);   
+    glViewport(0, 0, gSCR_HEIGHT, gSCR_WIDTH);   
     // Clear  
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -551,15 +590,52 @@ void draw(){
         glEnableVertexAttribArray(1); 
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, graphEBO);
+        /*glBufferData(GL_ELEMENT_ARRAY_BUFFER, numGraphElements * sizeof(int), graphElements, GL_DYNAMIC_DRAW);*/
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, numGraphElements * sizeof(int), graphElements, GL_DYNAMIC_DRAW);
 
     }
 }
 
+void phelp()
+{
+    printf("Available params:\n");
+    printf("-d      DENSITY; float 1.0 > DENSITY > 0)\n");
+    printf("-df     DIM_FACTOR; float 1.0 > DIM_FACTOR > 0)\n");
+    printf("-loop\n");
 
-int main()
+    exit(1);
+}
+
+void parse_args(int argc, char* argv[])
+{
+    printf("#args = %d\n", argc);
+    for(int i = 1; i < argc; i+=2)
+    {
+        printf("%d: %s\n", i, argv[i]);
+        if( 0 == strcmp("-d", argv[i]))
+        {
+            gGRID_DENSITY = atof(argv[i+1]);
+            if(gGRID_DENSITY >= 1.0 || gGRID_DENSITY <= 0)
+                phelp();
+        }
+        if( 0 == strcmp("-df", argv[i]))
+        {
+            gDIM_FACTOR = atof(argv[i+1]);
+            if(gDIM_FACTOR >= 1.0 || gDIM_FACTOR <= 0)
+                phelp();
+        }
+        if( 0 == strcmp("-loop", argv[i]))
+        {
+            loopFlag = 1;
+        }
+    }
+}
+
+int main(int argc, char *argv[])
 {
 	GLint status = 0;
+
+    parse_args(argc, argv);
 
 	//init project
 	status = init();	
@@ -575,12 +651,6 @@ int main()
     // -----------
     while (!glfwWindowShouldClose(window))
     {
-        // per-frame time logic
-        // --------------------
-        float currentFrame = glfwGetTime();
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
-
         // input
         // -----
         processInput(window);
@@ -616,7 +686,7 @@ int init()
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
 
-	window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Lightning", 0, 0);
+	window = glfwCreateWindow(gSCR_WIDTH, gSCR_HEIGHT, "Lightning", 0, 0);
 	if (window == 0)
 	{
 		printf("Failed to create GLFW window\n");
@@ -625,6 +695,7 @@ int init()
 	}
 	
 	glfwMakeContextCurrent(window);
+    //glfwSwapInterval(0); //set to 0 for fastest FPS (not synchronized to screen refresh rate)
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     //glfwSetCursorPosCallback(window, mouse_callback);
     //glfwSetScrollCallback(window, scroll_callback); 
@@ -638,7 +709,7 @@ int init()
 		return 1;
 	}
 
-	glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
+	glViewport(0, 0, gSCR_WIDTH, gSCR_HEIGHT);
 
     glGenVertexArrays(1, &gridVAO);
     glGenBuffers(1, &gridVBO);
@@ -651,7 +722,6 @@ int init()
     glGenBuffers(1, &graphVBO);
     glGenBuffers(1, &graphColorsVBO);
     glGenBuffers(1, &graphEBO);
-
 
     gridInit();
 
