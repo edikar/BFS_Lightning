@@ -9,11 +9,12 @@ libGLEW
 libglfw   
 
 ## 2. Compilation:
- `gcc -std=c99  -o lightning lightning.c -lGLEW -lGL -lglfw;`
+ `gcc -std=c99  -o lightning lightning.c -lGLEW -lGL -lglfw -DgGRID_SIZE=100;`
 
 ## 3. Execution: 
- `./lightning`  
+ `./lightning`
+ `./lightning --help`
 
-## 4. Screenshots
-soon...
+## 4. Demo
+https://www.youtube.com/watch?v=mmXNlQQ05Js
 
