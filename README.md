@@ -12,7 +12,7 @@ libglfw
  `gcc -std=c99  -o lightning lightning.c -lGLEW -lGL -lglfw -DgGRID_SIZE=100;`
 
 ## 3. Execution: 
- `./lightning`
+ `./lightning`    
  `./lightning --help`
 
 ## 4. Demo
